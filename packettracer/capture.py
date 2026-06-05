@@ -13,7 +13,7 @@ import queue
 import threading
 import time
 
-from . import config
+from . import config, sni
 from .dns_cache import DnsCache
 from .models import DnsEvent, PacketEvent, ProcessInfo
 from .netinfo import LocalAddresses
@@ -123,6 +123,13 @@ class Sniffer:
             tcp = pkt[TCP]
             src_port, dst_port = int(tcp.sport), int(tcp.dport)
             flags = str(tcp.flags)
+            # Learn the destination hostname from TLS SNI / HTTP Host — catches
+            # sites whose DNS lookup we never saw (cached / encrypted DNS).
+            payload = bytes(tcp.payload)
+            if payload:
+                host = sni.host_from_payload(payload, dst_port)
+                if host:
+                    self.dns.learn(dst_ip, host)
         elif UDP in pkt:
             proto = "UDP"
             udp = pkt[UDP]

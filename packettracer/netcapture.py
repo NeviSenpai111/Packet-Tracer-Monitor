@@ -18,7 +18,7 @@ import queue
 import threading
 import time
 
-from . import config
+from . import config, sni
 from .dns_cache import DnsCache
 from .lan import DeviceRegistry
 from .netstats import NetworkStats
@@ -45,6 +45,9 @@ class NetworkSniffer:
         self._sniffer = None
         self._running = threading.Event()
         self._discovery_thread: threading.Thread | None = None
+        # Our own NIC MAC, used to drop kernel-forwarded duplicate frames when
+        # MITM interception relays a victim's traffic through this host.
+        self.our_mac: str | None = None
 
     # -- topology helpers ----------------------------------------------------
     def gateway_ip(self) -> str | None:
@@ -66,8 +69,12 @@ class NetworkSniffer:
 
     # -- lifecycle -----------------------------------------------------------
     def start(self) -> None:
-        from scapy.all import AsyncSniffer  # heavy import, deferred
+        from scapy.all import AsyncSniffer, conf, get_if_hwaddr  # heavy import, deferred
 
+        try:
+            self.our_mac = get_if_hwaddr(config.IFACE or conf.iface).lower()
+        except Exception:  # noqa: BLE001 - MAC is only needed for MITM dedup
+            self.our_mac = None
         log.info("starting network sniffer iface=%s promisc=%s", config.IFACE, config.NET_PROMISC)
         self._sniffer = AsyncSniffer(
             iface=config.IFACE,
@@ -142,6 +149,14 @@ class NetworkSniffer:
         if IP in pkt:
             ip = pkt[IP]
             src_ip, dst_ip = ip.src, ip.dst
+            # When intercepting (MITM), the kernel re-emits each relayed frame
+            # with OUR MAC as source but the victim's IP still as L3 source. That
+            # TX copy is a duplicate of the RX frame we already counted — drop it.
+            # Our genuine traffic has our MAC *and* one of our own IPs, so it's
+            # kept by the is_self_ip() guard.
+            if (self.our_mac and eth_src and eth_src.lower() == self.our_mac
+                    and not self.registry.is_self_ip(src_ip)):
+                return
         elif IPv6 in pkt:
             ip = pkt[IPv6]
             src_ip, dst_ip = ip.src, ip.dst
@@ -168,6 +183,14 @@ class NetworkSniffer:
             proto = "TCP"
             src_port, dst_port = int(pkt[TCP].sport), int(pkt[TCP].dport)
             flags = str(pkt[TCP].flags)
+            # Learn the destination hostname from TLS SNI / HTTP Host (cleartext
+            # even when DNS was cached/encrypted). The request flows to the
+            # server, so dst_ip is the host being named.
+            payload = bytes(pkt[TCP].payload)
+            if payload:
+                host = sni.host_from_payload(payload, dst_port)
+                if host:
+                    self.dns.learn(dst_ip, host)
         elif UDP in pkt:
             proto = "UDP"
             src_port, dst_port = int(pkt[UDP].sport), int(pkt[UDP].dport)

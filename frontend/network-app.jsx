@@ -47,7 +47,7 @@ function NetworkApp() {
   const [dns, setDns] = useStateN([]);
   const [stats, setStats] = useStateN({ total_packets: 0, total_bytes: 0, throughput_bps: 0, by_proto: {}, top_destinations: [], timeline: [] });
   const [destinations, setDestinations] = useStateN([]);
-  const [netInfo, setNetInfo] = useStateN({ gateway_ip: null, subnet: null });
+  const [netInfo, setNetInfo] = useStateN({ gateway_ip: null, subnet: null, mitm: false });
   const [lastBatch, setLastBatch] = useStateN(null);
   const [newIds, setNewIds] = useStateN(() => new Set());
   const [newDnsIds, setNewDnsIds] = useStateN(() => new Set());
@@ -81,7 +81,7 @@ function NetworkApp() {
       },
       onStats: (s) => {
         setStats(s);
-        if (s.gateway_ip !== undefined) setNetInfo({ gateway_ip: s.gateway_ip, subnet: s.subnet });
+        if (s.gateway_ip !== undefined) setNetInfo({ gateway_ip: s.gateway_ip, subnet: s.subnet, mitm: !!s.mitm });
         setDestinations(simRef.current ? simRef.current.getDestinations() : []);
       },
     });
@@ -145,7 +145,10 @@ function NetworkApp() {
               <div className="panel-hd">
                 <span className="hd-accent" />
                 <h2>Network Map</h2>
-                <span className="hd-meta">live · {netInfo.subnet || "discovering…"}</span>
+                <span className="hd-meta">
+                  live · {netInfo.subnet || "discovering…"}
+                  {netInfo.mitm ? <span className="hd-intercept"> · intercepting</span> : null}
+                </span>
               </div>
               <Constellation
                 destinations={destinations}

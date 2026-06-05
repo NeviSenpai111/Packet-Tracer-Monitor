@@ -358,3 +358,18 @@ html, body {
   border-color: var(--accent);
   background: rgba(255, 255, 255, 0.03);
 }
+
+.hd-intercept {
+  color: #ff5f6d;
+  font-weight: 600;
+  animation: hd-intercept-pulse 1.6s ease-in-out infinite;
+}
+
+.stream-row .dst .arrow {
+  color: var(--tx-dim);
+  font-family: var(--font-mono);
+}
+@keyframes hd-intercept-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.45; }
+}

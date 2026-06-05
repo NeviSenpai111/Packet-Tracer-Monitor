@@ -49,6 +49,9 @@ sudo setcap cap_net_raw,cap_net_admin+eip "$(readlink -f .venv/bin/python)"
 | `PT_HOST` | `127.0.0.1` | Bind address |
 | `PT_PORT` | `8000` | Bind port |
 | `PT_IFACE` | all | Interface to sniff (e.g. `wlan0`) |
+| `PT_DISCOVERY` | `1` | Active ARP discovery sweep (`0` disables) |
+| `PT_MITM` | `0` | **ARP-spoof interception** for the network view (`1` enables) — see below |
+| `PT_MITM_TARGETS` | all | Comma-separated IPs to intercept; empty = every device except self/gateway |
 
 ## Architecture
 
@@ -76,6 +79,9 @@ Network monitor adds:
 - `packettracer/netcapture.py` — promiscuous sniffer (no src filter) + active ARP
   discovery sweep; attributes each packet to a LAN device.
 - `packettracer/netstats.py` — per-device aggregation joined with the registry.
+- `packettracer/mitm.py` — optional ARP-spoof interceptor (`PT_MITM=1`); off by default.
+- `packettracer/sni.py` — reads TLS **SNI** + HTTP **Host** from packets so the real
+  destination (e.g. `google.com`) shows even when its DNS lookup was cached/encrypted.
 
 ## Network monitor (`/network`)
 
@@ -91,6 +97,34 @@ visible to this machine. **What's actually visible depends on your network:**
   every device on the map (via ARP) but volume mostly for broadcast + this host.
 
 Active ARP discovery can be disabled with `PT_DISCOVERY=0`.
+
+### Seeing other devices' traffic — interception mode (`PT_MITM=1`)
+
+Because a switch only delivers you discovery + your own unicast, full per-device
+traffic normally needs **port mirroring/SPAN, a TAP, or running on the gateway**.
+If you don't have those, `PT_MITM=1` turns on **ARP-spoof interception**: this host
+poisons the ARP caches of LAN devices and the gateway so their traffic is *routed
+through this machine* (kernel IP-forwarding is enabled so connectivity is
+preserved), making it visible to the sniffer and attributed per device. The
+network map shows a pulsing **"intercepting"** badge while it's on.
+
+```bash
+sudo PT_MITM=1 bash run.sh                 # intercept every device
+sudo PT_MITM=1 PT_MITM_TARGETS=192.168.1.20,192.168.1.30 bash run.sh   # only these
+```
+
+> ⚠️ **This is intrusive and only legal/ethical on a network you own.** It is a
+> man-in-the-middle: it rewrites neighbours' ARP tables, can be disruptive, and is
+> exactly what security tooling flags as an attack. It's off by default. On
+> shutdown the original ARP mappings and `ip_forward`/`send_redirects` sysctls are
+> restored. Implementation: `packettracer/mitm.py` (`ArpSpoofer`); forwarded
+> duplicate frames are de-counted in `netcapture.py`.
+
+**Where is a device going?** Each packet carries `peer_ip`/`peer_host` — the remote
+endpoint the device is talking to — and the live-packet row renders it as
+`device → google.com`. Hostnames come from three passive sources: sniffed DNS
+replies, TLS **SNI**, and HTTP **Host** headers (`sni.py`), so you get real names
+even for cached or encrypted DNS.
 
 The network `stats` message extends the base stats with a `devices` array
 (`{ip, mac, vendor, hostname, host, packets, bytes, by_proto, is_self, is_gateway, ...}`)

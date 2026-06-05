@@ -43,6 +43,20 @@ DISCOVERY_INTERVAL_SEC = 45.0
 DISCOVERY_MAX_HOSTS = 512       # skip sweeping subnets larger than this
 DISCOVERY_SEND_GAP_SEC = 0.004  # throttle between ARP probes
 
+# --- MITM (ARP spoofing) — OFF by default --------------------------------
+# Active interception: poison the ARP caches of LAN devices and the gateway so
+# their traffic is routed through THIS host, making other devices' unicast
+# traffic visible without a managed switch / port mirror. This is intrusive and
+# only appropriate on a network you own. Enable with PT_MITM=1.
+MITM_ENABLED = os.environ.get("PT_MITM", "0") == "1"
+# Re-assert the poisoned ARP entries this often (caches expire / get corrected).
+MITM_INTERVAL_SEC = 2.0
+# Restrict targets to these IPs (comma-separated). Empty = every discovered
+# LAN device except this host and the gateway.
+MITM_TARGETS = os.environ.get("PT_MITM_TARGETS", "")
+# How many corrective ARP replies to send per target when restoring on exit.
+MITM_RESTORE_ROUNDS = 4
+
 # --- DNS --------------------------------------------------------------------
 DNS_CACHE_MAX = 20000          # max IP->host entries
 ENABLE_REVERSE_DNS = True      # best-effort PTR lookups for unknown IPs

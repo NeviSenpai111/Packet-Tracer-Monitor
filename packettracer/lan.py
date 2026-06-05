@@ -137,6 +137,20 @@ class DeviceRegistry:
         with self._lock:
             return _ip_in_nets(ip, self._nets)
 
+    def is_self_ip(self, ip: str) -> bool:
+        with self._lock:
+            return ip in self._local_ips
+
+    def local_ips(self) -> set[str]:
+        with self._lock:
+            return set(self._local_ips)
+
+    def mac_for(self, ip: str) -> str | None:
+        """Last-known MAC for ``ip`` if this device has been seen with one."""
+        with self._lock:
+            d = self._by_ip.get(ip)
+            return d.mac if d else None
+
     def observe(self, ip: str, mac: str | None, ts: float) -> None:
         """Record that ``ip`` (optionally with ``mac``) exists on the LAN."""
         with self._lock:

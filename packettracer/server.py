@@ -22,6 +22,7 @@ from fastapi.staticfiles import StaticFiles
 
 from . import config
 from .capture import Sniffer
+from .mitm import ArpSpoofer
 from .netcapture import NetworkSniffer
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
@@ -197,10 +198,32 @@ class NetworkApp(StreamApp):
     def __init__(self) -> None:
         super().__init__()
         self.sniffer = NetworkSniffer(self.queue)
+        self.mitm: ArpSpoofer | None = None
+
+    def start(self) -> None:
+        super().start()
+        # Optional active interception — only if capture is actually running and
+        # the operator explicitly opted in (PT_MITM=1).
+        if self.capture_ok and config.MITM_ENABLED:
+            try:
+                self.mitm = ArpSpoofer(self.sniffer.registry, iface=config.IFACE)
+                self.mitm.start()
+            except Exception as e:  # noqa: BLE001 - never let MITM break the stream
+                self.mitm = None
+                log.warning("[network] MITM interception failed to start (%s: %s)",
+                            type(e).__name__, e)
+
+    async def stop(self) -> None:
+        if self.mitm is not None:
+            self.mitm.stop()
+            self.mitm = None
+        await super().stop()
 
     def _stats_snapshot(self) -> dict:
         s = self.sniffer
-        return s.stats.snapshot(s.registry, s.gateway_ip(), s.subnet())
+        snap = s.stats.snapshot(s.registry, s.gateway_ip(), s.subnet())
+        snap["mitm"] = bool(self.mitm and self.mitm.is_active())
+        return snap
 
 
 host = HostApp()

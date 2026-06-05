@@ -28,7 +28,15 @@ function PacketStream({ packets, onSelectDest, onSelectProc, newIds }) {
           <span className={"proto-tag proto-" + p.proto}>{p.proto}</span>
           <span className="dst">
             {p.dst_host ? <span className="h">{p.dst_host}</span> : <span className="h">{p.dst_ip}</span>}
-            {p.dst_port != null && <span className="ip"> :{p.dst_port}</span>}
+            {p.peer_ip ? (
+              <React.Fragment>
+                <span className="arrow"> → </span>
+                <span className="h">{p.peer_host || p.peer_ip}</span>
+                {p.dst_port != null && <span className="ip">:{p.dst_port}</span>}
+              </React.Fragment>
+            ) : (
+              p.dst_port != null && <span className="ip"> :{p.dst_port}</span>
+            )}
           </span>
           <span className="sz">{fmtBytes(p.size)}</span>
         </div>
