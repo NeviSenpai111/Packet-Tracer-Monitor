@@ -1,8 +1,13 @@
 # Packet Tracer — Outgoing Traffic Monitor
 
-Captures **outgoing** network traffic on this Linux host with Scapy and streams
-it, structured, to a web dashboard over WebSocket. Shows the core 5-tuple,
-resolved hostnames, per-process attribution, and live stats.
+Captures network traffic on this Linux host with Scapy and streams it, structured,
+to a web dashboard over WebSocket. Two views:
+
+- **System monitor** (`/`) — **outbound** traffic from this machine: core 5-tuple,
+  resolved hostnames, per-process attribution, live stats.
+- **Network monitor** (`/network`) — devices on your **LAN** and the traffic
+  visible to this machine. Discovers devices (ARP) with vendor/hostname, and maps
+  per-device traffic. See "Network monitor" below for what's actually visible.
 
 The web UI (`frontend/`) is a deep-space **"orbital command center"**: your host
 sits at a glowing hub while destinations orbit as a live constellation star-map
@@ -61,7 +66,37 @@ Scapy AsyncSniffer (thread) ──▶ queue.Queue ──▶ asyncio pump ──W
 - `packettracer/processes.py` — `(proto, local_port) → pid/name`, ~1s cache.
 - `packettracer/dns_cache.py` — passive IP→host learning + bounded reverse DNS.
 - `packettracer/stats.py` — totals, protocol mix, top destinations, timeline.
-- `packettracer/server.py` — FastAPI WS `/ws`, REST `/api/snapshot`, static UI.
+- `packettracer/server.py` — FastAPI: host stream (`/ws`, `/api/snapshot`) +
+  network stream (`/ws/network`, `/api/network/snapshot`), static UI.
+
+Network monitor adds:
+- `packettracer/lan.py` — local subnet/gateway detection + `DeviceRegistry` (IP↔MAC,
+  vendor, hostname, first/last seen, is_self/is_gateway).
+- `packettracer/oui.py` — small curated MAC→vendor table.
+- `packettracer/netcapture.py` — promiscuous sniffer (no src filter) + active ARP
+  discovery sweep; attributes each packet to a LAN device.
+- `packettracer/netstats.py` — per-device aggregation joined with the registry.
+
+## Network monitor (`/network`)
+
+Shows the devices on your LAN as a constellation (gateway = hub) plus the traffic
+visible to this machine. **What's actually visible depends on your network:**
+
+- **Always works:** device discovery via ARP (with an active sweep of your /24),
+  broadcast/multicast chatter (mDNS/SSDP/DHCP — mDNS also yields `.local` hostnames),
+  and this host's own traffic.
+- **Needs more:** seeing *other* devices' unicast traffic (phone→internet, etc.)
+  requires the switch to deliver you those frames — i.e. **port mirroring / SPAN**,
+  a hub, or running this on the gateway/router. On an ordinary switch you'll see
+  every device on the map (via ARP) but volume mostly for broadcast + this host.
+
+Active ARP discovery can be disabled with `PT_DISCOVERY=0`.
+
+The network `stats` message extends the base stats with a `devices` array
+(`{ip, mac, vendor, hostname, host, packets, bytes, by_proto, is_self, is_gateway, ...}`)
+plus `gateway_ip` and `subnet`; packet items carry `peer_ip`/`peer_host` (the
+remote endpoint the device is talking to). The frontend reuses the same
+constellation/inspector components — see `frontend/README.md`.
 
 ## Data contract (for the future UI)
 

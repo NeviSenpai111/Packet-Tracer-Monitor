@@ -42,7 +42,8 @@ function buildLayout(dests, w, h, max) {
   return { nodes: out, cx, cy };
 }
 
-function Constellation({ destinations, lastBatch, selected, onSelect, accentHex, motion }) {
+function Constellation({ destinations, lastBatch, selected, onSelect, accentHex, motion, hubIp, hubSub }) {
+  const hubLabel = (hubIp || PacketSim.LOCAL_IP) + " · " + (hubSub || "this host");
   const wrapRef = useRefC(null);
   const canvasRef = useRefC(null);
   const [size, setSize] = useStateC({ w: 800, h: 600 });
@@ -259,7 +260,7 @@ function Constellation({ destinations, lastBatch, selected, onSelect, accentHex,
       <div className="cst-hint">OUTBOUND · {Object.keys(nodes).length} HOSTS</div>
       {/* hub label */}
       <div className="node hub" style={{ left: cx, top: cy + 30 }} onClick={() => onSelect(null)}>
-        <div className="lbl" style={{ opacity: 1 }}>{PacketSim.LOCAL_IP} · this host</div>
+        <div className="lbl" style={{ opacity: 1 }}>{hubLabel}</div>
       </div>
       {Object.values(nodes).map((nd) => {
         const isSel = selected && selected.type === "dest" && selected.ip === nd.ip;

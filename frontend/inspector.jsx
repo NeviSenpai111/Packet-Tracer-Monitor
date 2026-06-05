@@ -55,13 +55,15 @@ function RecentTo({ packets, label }) {
   );
 }
 
-function DestInspector({ ip, destinations, packets, onSelectProc }) {
+function DestInspector({ ip, destinations, packets, onSelectProc, destKind }) {
   const d = useMemoI(() => destinations.find((x) => x.ip === ip), [destinations, ip]);
   const recent = useMemoI(() => packets.filter((p) => p.dst_ip === ip), [packets, ip]);
-  if (!d) return <div className="empty">destination no longer active</div>;
+  const kind = destKind || "Destination";
+  if (!d) return <div className="empty">{kind.toLowerCase()} no longer active</div>;
   const proto = dominantProto(d.by_proto);
   const procs = Object.keys(d.procs || {}).map((n) => ({ n, v: d.procs[n] })).sort((a, b) => b.v - a.v);
   const avg = d.packets ? Math.round(d.bytes / d.packets) : 0;
+  const isDevice = kind === "Device";
   return (
     <>
       <div className="insp-hd">
@@ -69,9 +71,9 @@ function DestInspector({ ip, destinations, packets, onSelectProc }) {
           <span style={{ width: 18, height: 18, borderRadius: "50%", background: "radial-gradient(circle at 35% 30%, #fff, " + PROTO_HEX[proto] + ")", boxShadow: "0 0 12px " + PROTO_HEX[proto] }} />
         </div>
         <div className="ttl">
-          <div className="kind">Destination · {proto}</div>
+          <div className="kind">{kind}{d.is_gateway ? " · gateway" : ""} · {proto}</div>
           <h3>{d.host || d.ip}</h3>
-          <div className="ip">{d.ip}</div>
+          <div className="ip">{d.ip}{d.mac ? " · " + d.mac : ""}</div>
         </div>
       </div>
       <div className="insp-bd">
@@ -82,16 +84,26 @@ function DestInspector({ ip, destinations, packets, onSelectProc }) {
           <StatBox k="Share" v={pctOfTotal(destinations, d.bytes) + "%"} sub="of all bytes" />
         </div>
         <ProtoChips byProto={d.by_proto} />
-        <div className="insp-sec">
-          <div className="lab">Attributed processes</div>
-          {procs.length === 0 && <div className="empty" style={{ padding: 0, textAlign: "left" }}>unattributed</div>}
-          {procs.map((p) => (
-            <span className="chip" key={p.n} onClick={() => onSelectProc(p.n)}>
-              {p.n} <span className="ct">{fmtNum(p.v)} pkts</span>
-            </span>
-          ))}
-        </div>
-        <RecentTo packets={recent} label="Recent packets" />
+        {isDevice ? (
+          <div className="insp-sec">
+            <div className="lab">Device</div>
+            <span className="chip">vendor <span className="ct">{d.vendor || "unknown"}</span></span>
+            <span className="chip">mac <span className="ct">{d.mac || "—"}</span></span>
+            {d.is_self && <span className="chip">this machine</span>}
+            {d.is_gateway && <span className="chip">gateway / router</span>}
+          </div>
+        ) : (
+          <div className="insp-sec">
+            <div className="lab">Attributed processes</div>
+            {procs.length === 0 && <div className="empty" style={{ padding: 0, textAlign: "left" }}>unattributed</div>}
+            {procs.map((p) => (
+              <span className="chip" key={p.n} onClick={() => onSelectProc(p.n)}>
+                {p.n} <span className="ct">{fmtNum(p.v)} pkts</span>
+              </span>
+            ))}
+          </div>
+        )}
+        <RecentTo packets={recent} label={isDevice ? "Recent activity" : "Recent packets"} />
       </div>
     </>
   );
@@ -161,13 +173,14 @@ function pctOfTotal(destinations, bytes) {
   return Math.round((bytes / total) * 100);
 }
 
-function Inspector({ selected, destinations, packets, onSelect, onClose }) {
+function Inspector({ selected, destinations, packets, onSelect, onClose, destKind }) {
   if (!selected) return null;
   return (
     <div className="inspector">
       <button className="insp-close" onClick={onClose} title="Close (Esc)">×</button>
       {selected.type === "dest"
         ? <DestInspector ip={selected.ip} destinations={destinations} packets={packets}
+                         destKind={destKind}
                          onSelectProc={(n) => onSelect({ type: "proc", name: n })} />
         : <ProcInspector name={selected.name} destinations={destinations} packets={packets}
                          onSelectDest={(ip) => onSelect({ type: "dest", ip })} />}

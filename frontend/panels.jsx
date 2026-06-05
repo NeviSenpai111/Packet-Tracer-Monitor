@@ -38,11 +38,11 @@ function PacketStream({ packets, onSelectDest, onSelectProc, newIds }) {
 }
 
 /* ---------- top destinations ---------- */
-function TopDestinations({ stats, onSelectDest, selected }) {
+function TopDestinations({ stats, onSelectDest, selected, title }) {
   const top = (stats.top_destinations || []);
   const max = Math.max(1, ...top.map((d) => d.bytes));
   return (
-    <Panel title="Top Destinations" meta={top.length ? "by volume" : ""}>
+    <Panel title={title || "Top Destinations"} meta={top.length ? "by volume" : ""}>
       {top.length === 0 && <div className="empty">no traffic yet</div>}
       {top.map((d, i) => {
         const name = d.host || d.ip;

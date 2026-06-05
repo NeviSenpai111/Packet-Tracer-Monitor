@@ -1,7 +1,19 @@
 # Packet Tracer — Constellation UI
 
-A deep-space "orbital command center" dashboard for the outbound traffic monitor,
-designed in [Claude Design](https://claude.ai/design) and implemented here.
+A deep-space "orbital command center" dashboard, designed in
+[Claude Design](https://claude.ai/design) and implemented here. Two pages share
+the same components:
+
+- **`index.html`** (`/`) — **system** view: outbound traffic from this host.
+  Boots `DataSource` → `/ws` (host stream), simulator `sim.js`.
+- **`network.html`** (`/network`) — **network** view: LAN devices + visible traffic.
+  Boots `NetworkDataSource` → `/ws/network`, simulator `network-sim.js`. The hub is
+  the gateway, nodes are devices; the inspector shows MAC/vendor instead of
+  processes. Composed in `network-app.jsx`.
+
+The shared components (`constellation.jsx`, `panels.jsx`, `inspector.jsx`,
+`tweaks-panel.jsx`, `lib.jsx`) take small optional props so each page relabels
+them (`hubIp`/`hubSub`, panel `title`, inspector `destKind`) without forking.
 
 - **Constellation star-map** (`constellation.jsx`) — host hub at center, destinations
   orbiting as nodes (sized by bytes, colored by dominant protocol), packets

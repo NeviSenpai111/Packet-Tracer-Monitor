@@ -1,7 +1,10 @@
-"""FastAPI server: WebSocket stream + REST snapshot + static frontend.
+"""FastAPI server: WebSocket streams + REST snapshots + static frontend.
 
-Bridges the synchronous scapy sniffer thread to async WebSocket clients via a
-thread-safe ``queue.Queue`` drained on an executor.
+Serves two views, each a synchronous scapy sniffer bridged to async WebSocket
+clients via a thread-safe ``queue.Queue`` drained on an executor:
+
+  * host view   — outbound traffic from this machine   (/, /ws, /api/snapshot)
+  * network view — devices & traffic on the LAN  (/network, /ws/network, /api/network/snapshot)
 """
 
 from __future__ import annotations
@@ -19,6 +22,7 @@ from fastapi.staticfiles import StaticFiles
 
 from . import config
 from .capture import Sniffer
+from .netcapture import NetworkSniffer
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
 log = logging.getLogger("packettracer.server")
@@ -70,39 +74,47 @@ def _collect_batch(q: "queue.Queue", max_items: int, timeout: float) -> list:
     return items
 
 
-class App:
-    """Holds runtime state shared across requests/tasks."""
+def _to_dict(payload):
+    """Payloads may be dataclasses (host view) or plain dicts (network view)."""
+    return payload.to_dict() if hasattr(payload, "to_dict") else payload
+
+
+class StreamApp:
+    """Base: bridges a sniffer thread to WebSocket clients + stats broadcast."""
+
+    name = "stream"
+    disabled_reason = "live capture disabled (needs root / cap_net_raw)"
 
     def __init__(self) -> None:
         self.queue: "queue.Queue" = queue.Queue(maxsize=config.QUEUE_MAXSIZE)
-        self.sniffer = Sniffer(self.queue)
+        self.sniffer = None  # set by subclass
         self.manager = ConnectionManager()
         self.recent: deque = deque(maxlen=config.RECENT_PACKETS)
         self._tasks: list[asyncio.Task] = []
         self._running = False
         self.capture_ok = False
 
+    # subclasses override to build the stats payload
+    def _stats_snapshot(self) -> dict:
+        raise NotImplementedError
+
     async def _pump(self) -> None:
         loop = asyncio.get_running_loop()
         while self._running:
             batch = await loop.run_in_executor(
-                None,
-                _collect_batch,
-                self.queue,
-                config.FLUSH_MAX_BATCH,
-                config.FLUSH_INTERVAL_SEC,
+                None, _collect_batch, self.queue,
+                config.FLUSH_MAX_BATCH, config.FLUSH_INTERVAL_SEC,
             )
             if not batch:
                 continue
-            packets = []
-            dns = []
+            packets, dns = [], []
             for kind, payload in batch:
                 if kind == "packet":
-                    d = payload.to_dict()
+                    d = _to_dict(payload)
                     packets.append(d)
                     self.recent.append(d)
                 elif kind == "dns":
-                    dns.append(payload.to_dict())
+                    dns.append(_to_dict(payload))
             if packets:
                 await self.manager.broadcast({"type": "packets", "items": packets})
             if dns:
@@ -111,7 +123,7 @@ class App:
     async def _stats_loop(self) -> None:
         while self._running:
             await asyncio.sleep(config.STATS_INTERVAL_SEC)
-            snap = self.sniffer.stats.snapshot()
+            snap = self._stats_snapshot()
             snap["type"] = "stats"
             await self.manager.broadcast(snap)
 
@@ -123,11 +135,9 @@ class App:
         except Exception as e:  # noqa: BLE001 - typically PermissionError (no root)
             self.capture_ok = False
             log.warning(
-                "packet capture unavailable (%s: %s) — serving UI only; run under "
-                "sudo or grant cap_net_raw to enable live capture. The dashboard "
-                "will fall back to simulated traffic.",
-                type(e).__name__,
-                e,
+                "[%s] packet capture unavailable (%s: %s) — serving UI only; run "
+                "under sudo or grant cap_net_raw. The dashboard falls back to "
+                "simulated traffic.", self.name, type(e).__name__, e,
             )
         self._tasks = [
             asyncio.create_task(self._pump()),
@@ -147,21 +157,66 @@ class App:
                 pass
 
     def snapshot(self) -> dict:
-        snap = self.sniffer.stats.snapshot()
-        return {"stats": snap, "recent_packets": list(self.recent)}
+        return {"stats": self._stats_snapshot(), "recent_packets": list(self.recent)}
+
+    async def serve_ws(self, ws: WebSocket) -> None:
+        # If capture isn't running (e.g. no privileges), tell the client so it
+        # transparently falls back to its bundled simulator.
+        if not self.capture_ok:
+            await ws.accept()
+            await ws.send_json({"type": "unavailable", "reason": self.disabled_reason})
+            await ws.close()
+            return
+        await self.manager.connect(ws)
+        try:
+            await ws.send_json({"type": "snapshot", **self.snapshot()})
+            while True:
+                await ws.receive_text()  # keepalive / disconnect detection
+        except WebSocketDisconnect:
+            pass
+        except Exception:  # noqa: BLE001
+            pass
+        finally:
+            await self.manager.disconnect(ws)
 
 
-state = App()
+class HostApp(StreamApp):
+    name = "host"
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.sniffer = Sniffer(self.queue)
+
+    def _stats_snapshot(self) -> dict:
+        return self.sniffer.stats.snapshot()
+
+
+class NetworkApp(StreamApp):
+    name = "network"
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.sniffer = NetworkSniffer(self.queue)
+
+    def _stats_snapshot(self) -> dict:
+        s = self.sniffer
+        return s.stats.snapshot(s.registry, s.gateway_ip(), s.subnet())
+
+
+host = HostApp()
+network = NetworkApp()
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    state.start()
+    host.start()
+    network.start()
     log.info("packettracer started on http://%s:%s", config.HOST, config.PORT)
     try:
         yield
     finally:
-        await state.stop()
+        await host.stop()
+        await network.stop()
 
 
 app = FastAPI(title="Packet Tracer", lifespan=lifespan)
@@ -172,39 +227,30 @@ async def index() -> FileResponse:
     return FileResponse(FRONTEND_DIR / "index.html")
 
 
+@app.get("/network")
+async def network_index() -> FileResponse:
+    return FileResponse(FRONTEND_DIR / "network.html")
+
+
 @app.get("/api/snapshot")
 async def api_snapshot() -> JSONResponse:
-    return JSONResponse(state.snapshot())
+    return JSONResponse(host.snapshot())
+
+
+@app.get("/api/network/snapshot")
+async def api_network_snapshot() -> JSONResponse:
+    return JSONResponse(network.snapshot())
 
 
 @app.websocket("/ws")
 async def ws_endpoint(ws: WebSocket) -> None:
-    # If live capture isn't running (e.g. started without privileges), tell the
-    # client explicitly so it transparently falls back to its bundled simulator
-    # instead of sitting on an empty live stream.
-    if not state.capture_ok:
-        await ws.accept()
-        await ws.send_json(
-            {"type": "unavailable", "reason": "live capture disabled (needs root / cap_net_raw)"}
-        )
-        await ws.close()
-        return
-    await state.manager.connect(ws)
-    try:
-        # Bootstrap the client with current state.
-        snap = state.snapshot()
-        await ws.send_json({"type": "snapshot", **snap})
-        while True:
-            # We don't expect client messages; this keeps the socket alive and
-            # detects disconnects.
-            await ws.receive_text()
-    except WebSocketDisconnect:
-        pass
-    except Exception:  # noqa: BLE001
-        pass
-    finally:
-        await state.manager.disconnect(ws)
+    await host.serve_ws(ws)
 
 
-# Static assets (app.js, style.css) under /static.
+@app.websocket("/ws/network")
+async def ws_network_endpoint(ws: WebSocket) -> None:
+    await network.serve_ws(ws)
+
+
+# Static assets under /static.
 app.mount("/static", StaticFiles(directory=FRONTEND_DIR), name="static")

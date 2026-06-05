@@ -33,6 +33,16 @@ TIMELINE_SECONDS = 60          # rolling throughput window
 TOP_DESTINATIONS = 15          # top-N destinations to report
 RECENT_PACKETS = 200           # packets retained for /api/snapshot bootstrap
 
+# --- Network monitor (page 2) ----------------------------------------------
+# Capture in promiscuous mode so we see broadcast/multicast + (with port
+# mirroring) other devices' traffic, not just our own.
+NET_PROMISC = True
+# Active ARP discovery sweep of local /24s to find quiet devices.
+DISCOVERY_ENABLED = os.environ.get("PT_DISCOVERY", "1") != "0"
+DISCOVERY_INTERVAL_SEC = 45.0
+DISCOVERY_MAX_HOSTS = 512       # skip sweeping subnets larger than this
+DISCOVERY_SEND_GAP_SEC = 0.004  # throttle between ARP probes
+
 # --- DNS --------------------------------------------------------------------
 DNS_CACHE_MAX = 20000          # max IP->host entries
 ENABLE_REVERSE_DNS = True      # best-effort PTR lookups for unknown IPs
