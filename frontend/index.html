@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Packet Tracer — Outgoing Traffic</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <header>
+    <h1>Packet Tracer <span class="sub">outgoing traffic monitor</span></h1>
+    <div id="status" class="status disconnected">connecting…</div>
+  </header>
+
+  <!-- NOTE: This is a throwaway placeholder UI to verify the data pipeline.
+       The polished interface will be built later with the Claude Design product
+       against the documented WebSocket/REST contract (see README.md). -->
+
+  <section class="cards">
+    <div class="card"><div class="label">Packets</div><div class="value" id="m-packets">0</div></div>
+    <div class="card"><div class="label">Total bytes</div><div class="value" id="m-bytes">0</div></div>
+    <div class="card"><div class="label">Throughput</div><div class="value" id="m-throughput">0 bps</div></div>
+    <div class="card"><div class="label">Protocols</div><div class="value small" id="m-proto">—</div></div>
+  </section>
+
+  <div class="grid">
+    <section class="panel">
+      <h2>Live packets</h2>
+      <div class="table-wrap">
+        <table id="packets">
+          <thead>
+            <tr><th>Time</th><th>Proto</th><th>Destination</th><th>Port</th><th>Size</th><th>Process</th></tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </section>
+
+    <aside class="side">
+      <section class="panel">
+        <h2>Top destinations</h2>
+        <ul id="top-dst" class="list"></ul>
+      </section>
+      <section class="panel">
+        <h2>DNS queries</h2>
+        <ul id="dns" class="list"></ul>
+      </section>
+    </aside>
+  </div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
