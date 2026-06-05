@@ -4,9 +4,12 @@ Captures **outgoing** network traffic on this Linux host with Scapy and streams
 it, structured, to a web dashboard over WebSocket. Shows the core 5-tuple,
 resolved hostnames, per-process attribution, and live stats.
 
-The bundled web UI (`frontend/`) is a **throwaway placeholder** to verify the
-pipeline. The polished interface will be built later with the Claude Design
-product against the stable JSON contract documented below.
+The web UI (`frontend/`) is a deep-space **"orbital command center"**: your host
+sits at a glowing hub while destinations orbit as a live constellation star-map
+(nodes sized by volume, colored by protocol), packets fly the links as particles,
+and clicking any node/row drills into an inspector. It was designed in Claude
+Design and implemented against the JSON contract documented below. See
+[`frontend/README.md`](frontend/README.md) for UI details.
 
 ## Setup
 

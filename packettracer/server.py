@@ -80,6 +80,7 @@ class App:
         self.recent: deque = deque(maxlen=config.RECENT_PACKETS)
         self._tasks: list[asyncio.Task] = []
         self._running = False
+        self.capture_ok = False
 
     async def _pump(self) -> None:
         loop = asyncio.get_running_loop()
@@ -116,7 +117,18 @@ class App:
 
     def start(self) -> None:
         self._running = True
-        self.sniffer.start()
+        try:
+            self.sniffer.start()
+            self.capture_ok = True
+        except Exception as e:  # noqa: BLE001 - typically PermissionError (no root)
+            self.capture_ok = False
+            log.warning(
+                "packet capture unavailable (%s: %s) — serving UI only; run under "
+                "sudo or grant cap_net_raw to enable live capture. The dashboard "
+                "will fall back to simulated traffic.",
+                type(e).__name__,
+                e,
+            )
         self._tasks = [
             asyncio.create_task(self._pump()),
             asyncio.create_task(self._stats_loop()),
@@ -124,7 +136,8 @@ class App:
 
     async def stop(self) -> None:
         self._running = False
-        self.sniffer.stop()
+        if self.capture_ok:
+            self.sniffer.stop()
         for t in self._tasks:
             t.cancel()
         for t in self._tasks:
@@ -166,6 +179,16 @@ async def api_snapshot() -> JSONResponse:
 
 @app.websocket("/ws")
 async def ws_endpoint(ws: WebSocket) -> None:
+    # If live capture isn't running (e.g. started without privileges), tell the
+    # client explicitly so it transparently falls back to its bundled simulator
+    # instead of sitting on an empty live stream.
+    if not state.capture_ok:
+        await ws.accept()
+        await ws.send_json(
+            {"type": "unavailable", "reason": "live capture disabled (needs root / cap_net_raw)"}
+        )
+        await ws.close()
+        return
     await state.manager.connect(ws)
     try:
         # Bootstrap the client with current state.

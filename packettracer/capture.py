@@ -58,6 +58,17 @@ class Sniffer:
             store=False,
         )
         self._sniffer.start()
+        # AsyncSniffer opens its capture socket on a background thread, so a
+        # permission error (no root / cap_net_raw) surfaces *after* start()
+        # rather than raising here. Briefly verify the thread actually came up
+        # and re-raise any captured exception so callers can react.
+        time.sleep(0.3)
+        exc = getattr(self._sniffer, "exception", None)
+        if exc is not None:
+            raise exc
+        thread = getattr(self._sniffer, "thread", None)
+        if thread is not None and not thread.is_alive():
+            raise RuntimeError("packet capture thread exited during startup")
         self._running.set()
 
     def stop(self) -> None:
